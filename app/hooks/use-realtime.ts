@@ -16,7 +16,7 @@ export interface ActiveReaction {
   color: string
 }
 
-export type RealtimeStatus = 'connecting' | 'connected' | 'disconnected'
+export type RealtimeStatus = 'connecting' | 'connected' | 'disconnected' | 'token_expired' | 'guest'
 
 export interface UseRealtime {
   status: RealtimeStatus
@@ -30,6 +30,13 @@ export interface UseRealtime {
   sendReaction: (emoji: string, x: number, y: number) => void
 }
 
+export interface UseRealtimeOptions {
+  /** Auth token from /api/auth. If provided, appended to the WebSocket URL. */
+  token?: string | null
+  /** Token expiry timestamp (ms). Must accompany token. */
+  expiresAt?: number | null
+}
+
 /** Heartbeat cadence, and how long to wait for a pong before treating the socket as dead. */
 const HEARTBEAT_INTERVAL = 25_000
 const PONG_TIMEOUT = 10_000
@@ -39,8 +46,12 @@ const PONG_TIMEOUT = 10_000
  * reactive presence, cursor, and reaction state. Reconnects with exponential
  * backoff, as recommended for Vercel Functions WebSockets (connections close
  * when the function reaches its max duration).
+ *
+ * Pass `token` + `expiresAt` from `useAuth` to connect as an authenticated
+ * user. Without them the connection runs in anonymous guest mode.
  */
-export function useRealtime(): UseRealtime {
+export function useRealtime(options: UseRealtimeOptions = {}): UseRealtime {
+  const { token, expiresAt } = options
   const [status, setStatus] = useState<RealtimeStatus>('connecting')
   const [self, setSelf] = useState<Peer | null>(null)
   const [others, setOthers] = useState<RemotePeer[]>([])
@@ -162,10 +173,28 @@ export function useRealtime(): UseRealtime {
 
     function connect() {
       if (closed) return
-      setStatus('connecting')
+
+      // Validasi token sebelum connect
+      if (token && expiresAt) {
+        if (Date.now() > expiresAt) {
+          // Token sudah expired, jangan connect
+          setStatus('token_expired')
+          return
+        }
+        setStatus('connecting')
+      } else if (!token) {
+        // Tidak ada token, connect sebagai guest
+        setStatus('guest')
+      } else {
+        setStatus('connecting')
+      }
 
       const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
-      socket = new WebSocket(`${protocol}://${location.host}/api/ws`)
+      let wsUrl = `${protocol}://${location.host}/api/ws`
+      if (token && expiresAt && Date.now() <= expiresAt) {
+        wsUrl += `?token=${encodeURIComponent(token)}&timestamp=${encodeURIComponent(expiresAt)}`
+      }
+      socket = new WebSocket(wsUrl)
 
       socket.addEventListener('open', () => {
         reconnectDelay = 1000
@@ -232,7 +261,7 @@ export function useRealtime(): UseRealtime {
       stopHeartbeat()
       socket?.close()
     }
-  }, [])
+  }, [token, expiresAt])
 
   return {
     status,

@@ -1,6 +1,7 @@
 import { defineWebSocketHandler } from 'nitro'
 import { REACTIONS, type ChatMessage, type ClientMessage, type Peer, type ServerMessage } from '../../shared/types/realtime'
 import { createIdentity } from '../utils/identity'
+import { validateToken } from '../utils/auth'
 
 const CHANNEL = 'room'
 
@@ -20,7 +21,35 @@ function send(peer: { send: (data: string) => void }, msg: ServerMessage) {
 
 export default defineWebSocketHandler({
   open(peer) {
-    const identity = createIdentity()
+    // ------------------------------------------------------------------
+    // Token validation
+    // Extract token & timestamp from URL query params.
+    // e.g. /api/ws?token=xxx&timestamp=1234567890
+    //
+    // · No token  → guest mode (random identity, same as before)
+    // · Token present but INVALID / EXPIRED → reject the connection
+    // ------------------------------------------------------------------
+    const url = peer.request?.url ?? ''
+    const params = new URLSearchParams(url.includes('?') ? url.slice(url.indexOf('?') + 1) : '')
+    const token = params.get('token')
+    const timestamp = params.get('timestamp')
+
+    let identity: Peer
+
+    if (token) {
+      // Token was supplied — it must be valid
+      const authUser = validateToken(token, timestamp ? Number(timestamp) : undefined)
+      if (!authUser) {
+        // Invalid or expired token — refuse the connection
+        peer.close(4001, 'Unauthorized: invalid or expired token')
+        return
+      }
+      identity = { id: authUser.id, name: authUser.name, color: authUser.color }
+    } else {
+      // No token — guest mode
+      identity = createIdentity()
+    }
+
     peer.context.identity = identity
 
     peer.subscribe(CHANNEL)

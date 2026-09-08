@@ -10,6 +10,7 @@ import {
   Copy,
   Smartphone,
   Terminal,
+  KeyRound,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -59,7 +60,7 @@ function CodeSnippet({ code, lang = 'TypeScript' }: { code: string; lang?: strin
 
 export function DocsModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const [activeTab, setActiveTab] = useState('multi-clients')
-  const [activePlatform, setActivePlatform] = useState<'flutter' | 'swift' | 'golang' | 'kotlin' | 'python'>('flutter')
+  const [activePlatform, setActivePlatform] = useState<'auth' | 'flutter' | 'swift' | 'golang' | 'kotlin' | 'python'>('auth')
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -78,6 +79,70 @@ export function DocsModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
   if (!isOpen) return null
 
   const sections: Section[] = [
+    {
+      id: 'auth',
+      title: '🔐 Autentikasi & Token',
+      icon: KeyRound,
+      content: (
+        <div className="space-y-4">
+          <div>
+            <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-500 mb-2">
+              Authentication Flow
+            </div>
+            <h3 className="text-lg font-bold text-foreground">
+              Cara Mendapatkan & Menggunakan Token
+            </h3>
+            <p className="text-sm text-muted-foreground mt-1">
+              Token digunakan untuk autentikasi koneksi WebSocket. Setiap user yang register/login akan mendapatkan token unik.
+            </p>
+          </div>
+
+          <div className="rounded-xl border bg-card/60 p-4 space-y-2">
+            <h4 className="text-sm font-semibold text-foreground">1. Register / Login via REST API</h4>
+            <CodeSnippet
+              lang="HTTP Request"
+              code={`# Register
+curl -X POST https://your-domain.vercel.app/api/auth \\
+  -H "Content-Type: application/json" \\
+  -d '{"action":"register","email":"user@email.com","password":"secret123"}'
+
+# Response:
+# {
+#   "token": "cc654f37-d2ee-4a4e-b784-d378050ea02a",
+#   "expiresAt": 1788919776556,
+#   "user": { "id": "...", "name": "User", "email": "user@email.com", "color": "hsl(...)" }
+# }
+
+# Login
+curl -X POST https://your-domain.vercel.app/api/auth \\
+  -H "Content-Type: application/json" \\
+  -d '{"action":"login","email":"user@email.com","password":"secret123"}'`}
+            />
+          </div>
+
+          <div className="rounded-xl border bg-card/60 p-4 space-y-2">
+            <h4 className="text-sm font-semibold text-foreground">2. Connect WebSocket dengan Token</h4>
+            <p className="text-xs text-muted-foreground">
+              Sertakan token sebagai query parameter saat connect ke WebSocket:
+            </p>
+            <CodeSnippet
+              lang="WebSocket URL"
+              code={`wss://your-domain.vercel.app/api/ws?token=YOUR_TOKEN_HERE&timestamp=EXPIRES_AT`}
+            />
+          </div>
+
+          <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4">
+            <h4 className="text-sm font-semibold text-amber-500">Catatan Penting</h4>
+            <ul className="list-disc list-inside text-xs text-muted-foreground space-y-1.5 mt-2">
+              <li>Token berlaku selama <strong>24 jam</strong> sejak login terakhir.</li>
+              <li>Login ulang akan menghasilkan token baru (token lama otomatis tidak valid).</li>
+              <li>Tanpa token, user akan terhubung sebagai <strong>guest</strong> (anonymous identity).</li>
+              <li>Token bisa diambil dari modal login/register di web ini, atau dari response API.</li>
+            </ul>
+          </div>
+        </div>
+      ),
+    },
     {
       id: 'multi-clients',
       title: '📱 Flutter, Swift/iOS, Go, dll',
@@ -99,6 +164,7 @@ export function DocsModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
           {/* Sub-tab Platform Selector */}
           <div className="flex flex-wrap gap-2 border-b pb-3">
             {[
+              { id: 'auth', label: '🔐 Autentikasi' },
               { id: 'flutter', label: 'Flutter / Dart' },
               { id: 'swift', label: 'Swift (iOS Native)' },
               { id: 'golang', label: 'Golang (Go)' },
@@ -130,7 +196,7 @@ export function DocsModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
               <div className="rounded-xl border bg-card/60 p-4 space-y-2">
                 <h4 className="text-sm font-semibold text-foreground">2. Implementasi Client Flutter (Dart)</h4>
                 <p className="text-xs text-muted-foreground">
-                  Connect ke endpoint Vercel WebSocket, dengarkan broadcast pesan, dan kirim chat:
+                  Connect ke endpoint WebSocket dengan token autentikasi:
                 </p>
                 <CodeSnippet
                   lang="Dart (Flutter)"
@@ -140,43 +206,53 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 class RealtimeService {
   late WebSocketChannel _channel;
 
-  void connect() {
-    // URL server Vercel Anda (gunakan wss:// di production)
-    final uri = Uri.parse('wss://your-domain.vercel.app/api/ws');
-    _channel = WebSocketChannel.connect(uri);
+  /// Connect dengan token autentikasi
+  void connect(String token, {int? expiresAt}) {
+    // Bangun URL dengan token sebagai query parameter
+    var uri = 'wss://your-domain.vercel.app/api/ws';
+    if (token.isNotEmpty) {
+      uri += '?token=\${Uri.encodeComponent(token)}';
+      if (expiresAt != null) {
+        uri += '&timestamp=\$expiresAt';
+      }
+    }
+
+    _channel = WebSocketChannel.connect(Uri.parse(uri));
 
     // Dengarkan pesan masuk dari server
     _channel.stream.listen((message) {
       final data = jsonDecode(message);
-      print('Frame diterima: $data');
+      print('Frame diterima: \$data');
 
       if (data['t'] == 'message') {
         print('Pesan baru dari \${data['message']['name']}: \${data['message']['text']}');
       }
     }, onError: (error) {
-      print('WS Error: $error');
+      print('WS Error: \$error');
     }, onDone: () {
-      print('WS Disconnected, coba sambungkan ulang...');
-      Future.delayed(Duration(seconds: 2), connect);
+      print('WS Disconnected, reconnecting...');
+      Future.delayed(Duration(seconds: 2), () => connect(token, expiresAt: expiresAt));
     });
+  }
+
+  /// Login dulu untuk mendapatkan token
+  Future<Map<String, dynamic>> login(String email, String password) async {
+    final response = await http.post(
+      Uri.parse('https://your-domain.vercel.app/api/auth'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'action': 'login',
+        'email': email,
+        'password': password,
+      }),
+    );
+    return jsonDecode(response.body);
   }
 
   // Kirim pesan chat ke room
   void sendMessage(String text) {
-    final payload = jsonEncode({
-      't': 'message',
-      'text': text,
-    });
+    final payload = jsonEncode({'t': 'message', 'text': text});
     _channel.sink.add(payload);
-  }
-
-  // Kirim posisi kursor (koordinat 0.0 - 1.0)
-  void sendCursor(double x, double y) {
-    _channel.sink.add(jsonEncode({
-      't': 'cursor',
-      'x': x,
-      'y': y,
-    }));
   }
 
   void dispose() {
@@ -202,13 +278,44 @@ class RealtimeService {
 
 class RealtimeManager: ObservableObject {
   private var webSocketTask: URLSessionWebSocketTask?
-  private let url = URL(string: "wss://your-domain.vercel.app/api/ws")!
-
-  func connect() {
+  
+  /// Connect dengan token autentikasi
+  func connect(token: String, expiresAt: Int? = nil) {
+    var urlString = "wss://your-domain.vercel.app/api/ws"
+    if !token.isEmpty {
+      urlString += "?token=\(token)"
+      if let ts = expiresAt {
+        urlString += "&timestamp=\\(ts)"
+      }
+    }
+    
+    let url = URL(string: urlString)!
     let session = URLSession(configuration: .default)
     webSocketTask = session.webSocketTask(with: url)
     webSocketTask?.resume()
     listenForMessages()
+  }
+  
+  /// Login untuk mendapatkan token
+  func login(email: String, password: String, completion: @escaping (String?, Int?) -> Void) {
+    let url = URL(string: "https://your-domain.vercel.app/api/auth")!
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    
+    let body = ["action": "login", "email": email, "password": password]
+    request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+    
+    URLSession.shared.dataTask(with: request) { data, _, _ in
+      guard let data = data,
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let token = json["token"] as? String,
+            let expiresAt = json["expiresAt"] as? Int else {
+        completion(nil, nil)
+        return
+      }
+      completion(token, expiresAt)
+    }.resume()
   }
 
   private func listenForMessages() {
@@ -223,32 +330,21 @@ class RealtimeManager: ObservableObject {
           }
         default: break
         }
-        // Lanjutkan mendengarkan frame berikutnya
         self?.listenForMessages()
-
       case .failure(let error):
         print("WebSocket Error: \\(error)")
-        // Auto-reconnect setelah 2 detik
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-          self?.connect()
+          self?.connect(token: "", expiresAt: nil)
         }
       }
     }
   }
 
-  // Kirim pesan chat ke room
   func sendMessage(_ text: String) {
-    let payload: [String: Any] = [
-      "t": "message",
-      "text": text
-    ]
+    let payload: [String: Any] = ["t": "message", "text": text]
     if let data = try? JSONSerialization.data(withJSONObject: payload),
        let jsonString = String(data: data, encoding: .utf8) {
-      webSocketTask?.send(.string(jsonString)) { error in
-        if let error = error {
-          print("Gagal kirim pesan: \\(error)")
-        }
-      }
+      webSocketTask?.send(.string(jsonString)) { _ in }
     }
   }
 }`}
@@ -261,7 +357,7 @@ class RealtimeManager: ObservableObject {
           {activePlatform === 'golang' && (
             <div className="space-y-3">
               <div className="rounded-xl border bg-card/60 p-4 space-y-2">
-                <h4 className="text-sm font-semibold text-foreground">1. Client Golang (Connect ke Vercel WebSocket)</h4>
+                <h4 className="text-sm font-semibold text-foreground">1. Client Golang (Connect dengan Token)</h4>
                 <p className="text-xs text-muted-foreground">
                   Gunakan package modern <code>nhooyr.io/websocket</code>:
                 </p>
@@ -270,9 +366,12 @@ class RealtimeManager: ObservableObject {
                   code={`package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
+	"net/http"
 	"time"
 	"nhooyr.io/websocket"
 )
@@ -282,9 +381,49 @@ type ClientMessage struct {
 	Text string \`json:"text,omitempty"\`
 }
 
+type LoginResponse struct {
+	Token     string \`json:"token"\`
+	ExpiresAt int64  \`json:"expiresAt"\`
+}
+
+// Login untuk mendapatkan token
+func login(email, password string) (*LoginResponse, error) {
+	body := map[string]string{
+		"action":   "login",
+		"email":    email,
+		"password": password,
+	}
+	jsonBody, _ := json.Marshal(body)
+
+	resp, err := http.Post(
+		"https://your-domain.vercel.app/api/auth",
+		"application/json",
+		bytes.NewBuffer(jsonBody),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result LoginResponse
+	json.NewDecoder(resp.Body).Decode(&result)
+	return &result, nil
+}
+
 func main() {
+	// 1. Login dulu
+	loginResp, err := login("user@email.com", "password123")
+	if err != nil {
+		log.Fatalf("Login gagal: %v", err)
+	}
+
+	// 2. Connect WebSocket dengan token
 	ctx := context.Background()
-	wsURL := "wss://your-domain.vercel.app/api/ws"
+	wsURL := fmt.Sprintf(
+		"wss://your-domain.vercel.app/api/ws?token=%s&timestamp=%d",
+		loginResp.Token,
+		loginResp.ExpiresAt,
+	)
 
 	conn, _, err := websocket.Dial(ctx, wsURL, nil)
 	if err != nil {
@@ -292,7 +431,7 @@ func main() {
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
-	// 1. Goroutine untuk membaca pesan dari server
+	// 3. Baca pesan dari server
 	go func() {
 		for {
 			_, data, err := conn.Read(ctx)
@@ -300,20 +439,15 @@ func main() {
 				log.Printf("Disconnected: %v", err)
 				return
 			}
-			log.Printf("Server broadcast: %s", string(data))
+			log.Printf("Server: %s", string(data))
 		}
 	}()
 
-	// 2. Kirim pesan chat dari Go
-	msg := ClientMessage{Type: "message", Text: "Halo dari Go backend client!"}
+	// 4. Kirim pesan
+	msg := ClientMessage{Type: "message", Text: "Halo dari Go!"}
 	payload, _ := json.Marshal(msg)
+	conn.Write(ctx, websocket.MessageText, payload)
 
-	err = conn.Write(ctx, websocket.MessageText, payload)
-	if err != nil {
-		log.Printf("Error kirim: %v", err)
-	}
-
-	// Jaga proses tetap hidup
 	select {}
 }`}
                 />
@@ -327,25 +461,53 @@ func main() {
               <div className="rounded-xl border bg-card/60 p-4 space-y-2">
                 <h4 className="text-sm font-semibold text-foreground">Implementasi Kotlin (Android Native - OkHttp)</h4>
                 <p className="text-xs text-muted-foreground">
-                  Gunakan <code>okhttp3.WebSocket</code>:
+                  Gunakan <code>okhttp3.WebSocket</code> dengan token autentikasi:
                 </p>
                 <CodeSnippet
                   lang="Kotlin (Android)"
                   code={`import okhttp3.*
 import org.json.JSONObject
+import java.io.IOException
 
 class RealtimeClient {
   private val client = OkHttpClient()
   private var ws: WebSocket? = null
 
-  fun connect() {
+  /// Login untuk mendapatkan token
+  fun login(email: String, password: String, callback: (String?, Int?) -> Unit) {
+    val body = JSONObject().apply {
+      put("action", "login")
+      put("email", email)
+      put("password", password)
+    }
+
     val request = Request.Builder()
-      .url("wss://your-domain.vercel.app/api/ws")
+      .url("https://your-domain.vercel.app/api/auth")
+      .post(body.toString().toRequestBody("application/json".toMediaType()))
       .build()
+
+    client.newCall(request).enqueue(object : Callback {
+      override fun onFailure(call: Call, e: IOException) { callback(null, null) }
+      override fun onResponse(call: Call, response: Response) {
+        val json = JSONObject(response.body?.string() ?: "")
+        callback(json.optString("token"), json.optInt("expiresAt"))
+      }
+    })
+  }
+
+  /// Connect dengan token autentikasi
+  fun connect(token: String, expiresAt: Int? = null) {
+    var url = "wss://your-domain.vercel.app/api/ws"
+    if (token.isNotEmpty()) {
+      url += "?token=$token"
+      if (expiresAt != null) url += "&timestamp=$expiresAt"
+    }
+
+    val request = Request.Builder().url(url).build()
 
     ws = client.newWebSocket(request, object : WebSocketListener() {
       override fun onOpen(webSocket: WebSocket, response: Response) {
-        println("Terhubung ke Vercel WebSocket!")
+        println("Terhubung ke WebSocket!")
       }
 
       override fun onMessage(webSocket: WebSocket, text: String) {
@@ -357,8 +519,8 @@ class RealtimeClient {
       }
 
       override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-        println("Gagal terhubung: \${t.message}, reconnecting...")
-        // Handle auto-reconnect di sini
+        println("Gagal: \${t.message}, reconnecting...")
+        // Reconnect setelah delay
       }
     })
   }
@@ -382,33 +544,47 @@ class RealtimeClient {
               <div className="rounded-xl border bg-card/60 p-4 space-y-2">
                 <h4 className="text-sm font-semibold text-foreground">Implementasi Python (asyncio + websockets)</h4>
                 <p className="text-xs text-muted-foreground">
-                  Jalankan <code>pip install websockets</code>:
+                  Jalankan <code>pip install websockets aiohttp</code>:
                 </p>
                 <CodeSnippet
                   lang="Python 3"
                   code={`import asyncio
 import json
+import aiohttp
 import websockets
 
-async def listen(ws):
-    async for message in ws:
-        data = json.loads(message)
-        print(f"Pesan dari Vercel: {data}")
+# Login untuk mendapatkan token
+async def login(email: str, password: str) -> dict:
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            "https://your-domain.vercel.app/api/auth",
+            json={"action": "login", "email": email, "password": password}
+        ) as resp:
+            return await resp.json()
 
-async def send_chat(ws, text):
-    payload = json.dumps({"t": "message", "text": text})
-    await ws.send(payload)
-
-async def main():
-    uri = "wss://your-domain.vercel.app/api/ws"
+# Connect WebSocket dengan token
+async def connect_with_token(token: str, expires_at: int):
+    uri = f"wss://your-domain.vercel.app/api/ws?token={token}&timestamp={expires_at}"
+    
     async with websockets.connect(uri) as ws:
-        print("Connected to Vercel WS!")
+        print("Connected to WebSocket!")
         
-        # Kirim pesan chat dari Python
-        await send_chat(ws, "Halo dari script Python!")
+        # Kirim pesan chat
+        await ws.send(json.dumps({"t": "message", "text": "Halo dari Python!"}))
         
         # Terus dengarkan pesan server
-        await listen(ws)
+        async for message in ws:
+            data = json.loads(message)
+            print(f"Server: {data}")
+
+async def main():
+    # 1. Login dulu
+    login_resp = await login("user@email.com", "password123")
+    token = login_resp["token"]
+    expires_at = login_resp["expiresAt"]
+    
+    # 2. Connect dengan token
+    await connect_with_token(token, expires_at)
 
 asyncio.run(main())`}
                 />

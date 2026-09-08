@@ -11,6 +11,8 @@ const STATUS_META = {
   connecting: { dot: 'bg-amber-500', label: 'Connecting' },
   connected: { dot: 'bg-emerald-500', label: 'Live' },
   disconnected: { dot: 'bg-red-500', label: 'Reconnecting' },
+  token_expired: { dot: 'bg-red-500', label: 'Token Expired' },
+  guest: { dot: 'bg-amber-500', label: 'Guest Mode' },
 } as const
 
 /** Max avatars shown before collapsing the rest into a "+N" chip. */

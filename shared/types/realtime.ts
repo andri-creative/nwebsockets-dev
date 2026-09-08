@@ -6,6 +6,16 @@
  * of different sizes.
  */
 
+/** Authenticated user returned from /api/auth and stored in localStorage. */
+export interface AuthUser {
+  id: string
+  email: string
+  name: string
+  color: string
+  token: string
+  expiresAt: number
+}
+
 /** A connected participant. Identity is assigned by the server on connect. */
 export interface Peer {
   id: string

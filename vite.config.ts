@@ -24,4 +24,12 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./app', import.meta.url)),
     },
   },
+  server: {
+    // Suppress the EPERM overlay — this is a macOS network-sandbox issue
+    // on the Nitro internal socket port, not a code error.
+    hmr: {
+      overlay: false,
+    },
+    strictPort: false,
+  },
 })
