@@ -1,5 +1,8 @@
+import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { buttonVariants } from '@/components/ui/button'
+import { ChatPanel } from '@/components/chat-panel'
+import { DocsModal } from '@/components/docs-modal'
 import { HeroBackdrop } from '@/components/hero-backdrop'
 import { LiveCanvas } from '@/components/live-canvas'
 import { PresenceBar } from '@/components/presence-bar'
@@ -10,6 +13,7 @@ import {
   Users,
   VercelLogo,
 } from '@/components/icons'
+import { BookOpen, MessageSquare } from 'lucide-react'
 import { useRealtime } from '@/hooks/use-realtime'
 import { cn } from '@/lib/utils'
 import { site } from '@/lib/site'
@@ -33,10 +37,17 @@ const features = [
     description:
       'Ephemeral emoji bursts fan out to everyone in the room over the same WebSocket connection.',
   },
+  {
+    icon: MessageSquare,
+    title: 'Live chat',
+    description:
+      'Realtime bidirectional text messaging fanned out to all connected peers in the room.',
+  },
 ]
 
 export function App() {
   const rt = useRealtime()
+  const [isDocsOpen, setIsDocsOpen] = useState(false)
 
   return (
     <div className="relative min-h-screen">
@@ -50,18 +61,31 @@ export function App() {
           <span className="hidden text-sm sm:inline">WebSockets</span>
         </div>
 
-        <a
-          href={site.deployUrl}
-          target="_blank"
-          rel="noreferrer"
-          className={cn(
-            buttonVariants({ variant: 'secondary', size: 'sm' }),
-            'bg-white text-black hover:bg-white/90',
-          )}
-        >
-          <VercelLogo className="size-5" />
-          Deploy with Vercel
-        </a>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsDocsOpen(true)}
+            className={cn(
+              buttonVariants({ variant: 'outline', size: 'sm' }),
+              'cursor-pointer gap-1.5'
+            )}
+          >
+            <BookOpen className="size-4" />
+            <span>Docs</span>
+          </button>
+
+          <a
+            href={site.deployUrl}
+            target="_blank"
+            rel="noreferrer"
+            className={cn(
+              buttonVariants({ variant: 'secondary', size: 'sm' }),
+              'bg-white text-black hover:bg-white/90',
+            )}
+          >
+            <VercelLogo className="size-5" />
+            Deploy with Vercel
+          </a>
+        </div>
       </header>
 
       <main className="relative z-10 mx-auto max-w-5xl px-4 pb-20">
@@ -82,7 +106,7 @@ export function App() {
 
         <LiveCanvas rt={rt} />
 
-        <section className="mt-16 grid gap-6 sm:grid-cols-3">
+        <section className="mt-16 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {features.map((feature) => (
             <div
               key={feature.title}
@@ -133,6 +157,12 @@ export function App() {
           </a>
         </div>
       </footer>
+
+      {/* Realtime Chat Floating Panel */}
+      <ChatPanel rt={rt} />
+
+      {/* Interactive Documentation Modal */}
+      <DocsModal isOpen={isDocsOpen} onClose={() => setIsDocsOpen(false)} />
     </div>
   )
 }

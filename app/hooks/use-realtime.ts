@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ClientMessage, Peer, ServerMessage } from '../../shared/types/realtime'
+import type { ChatMessage, ClientMessage, Peer, ServerMessage } from '../../shared/types/realtime'
 
 export interface RemotePeer extends Peer {
   x: number
@@ -24,6 +24,8 @@ export interface UseRealtime {
   others: RemotePeer[]
   count: number
   reactions: ActiveReaction[]
+  messages: ChatMessage[]
+  sendMessage: (text: string) => void
   moveCursor: (x: number, y: number) => void
   sendReaction: (emoji: string, x: number, y: number) => void
 }
@@ -43,6 +45,7 @@ export function useRealtime(): UseRealtime {
   const [self, setSelf] = useState<Peer | null>(null)
   const [others, setOthers] = useState<RemotePeer[]>([])
   const [reactions, setReactions] = useState<ActiveReaction[]>([])
+  const [messages, setMessages] = useState<ChatMessage[]>([])
 
   // Roster lives in a ref (mutated as frames arrive) and is mirrored into the
   // `others` state whenever it changes, so cursor frames don't thrash React.
@@ -52,8 +55,11 @@ export function useRealtime(): UseRealtime {
   // Stable callbacks whose implementations are wired up inside the effect.
   const moveCursorRef = useRef<(x: number, y: number) => void>(() => { })
   const sendReactionRef = useRef<(emoji: string, x: number, y: number) => void>(() => { })
+  const sendMessageRef = useRef<(text: string) => void>(() => { })
   const moveCursor = useCallback((x: number, y: number) => moveCursorRef.current(x, y), [])
   const sendReaction = useCallback((emoji: string, x: number, y: number) => sendReactionRef.current(emoji, x, y), [])
+  const sendMessage = useCallback((text: string) => sendMessageRef.current(text), [])
+
 
   useEffect(() => {
     let socket: WebSocket | undefined
@@ -117,6 +123,13 @@ export function useRealtime(): UseRealtime {
           addReaction(msg.emoji, msg.x, msg.y, peer?.color ?? 'var(--primary)')
           break
         }
+        case 'message':
+          setMessages(prev => {
+            if (prev.some(m => m.id === msg.message.id)) return prev
+            const next = [...prev, msg.message]
+            return next.length > 100 ? next.slice(next.length - 100) : next
+          })
+          break
         case 'pong':
           clearPong()
           break
@@ -204,6 +217,12 @@ export function useRealtime(): UseRealtime {
       addReaction(emoji, x, y, selfRef.current?.color ?? 'var(--primary)')
     }
 
+    sendMessageRef.current = (text: string) => {
+      const trimmed = text.trim()
+      if (!trimmed) return
+      send({ t: 'message', text: trimmed })
+    }
+
     connect()
 
     return () => {
@@ -221,6 +240,8 @@ export function useRealtime(): UseRealtime {
     others,
     count: others.length + (self ? 1 : 0),
     reactions,
+    messages,
+    sendMessage,
     moveCursor,
     sendReaction,
   }

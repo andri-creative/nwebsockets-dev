@@ -14,10 +14,21 @@ export interface Peer {
   color: string
 }
 
+/** A chat message sent in the room. */
+export interface ChatMessage {
+  id: string
+  peerId: string
+  name: string
+  color: string
+  text: string
+  createdAt: number
+}
+
 /** Messages the client sends to the server. */
 export type ClientMessage
   = | { t: 'cursor', x: number, y: number }
     | { t: 'reaction', emoji: string, x: number, y: number }
+    | { t: 'message', text: string }
     | { t: 'ping' }
 
 /** Messages the server sends to the client. */
@@ -27,7 +38,9 @@ export type ServerMessage
     | { t: 'leave', id: string }
     | { t: 'cursor', id: string, x: number, y: number }
     | { t: 'reaction', id: string, emoji: string, x: number, y: number }
+    | { t: 'message', message: ChatMessage }
     | { t: 'pong' }
 
 export const REACTIONS = ['🎉', '❤️', '😮', '👍', '🔥', '✨'] as const
 export type Reaction = typeof REACTIONS[number]
+

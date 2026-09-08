@@ -1,5 +1,5 @@
 import { defineWebSocketHandler } from 'nitro'
-import { REACTIONS, type ClientMessage, type Peer, type ServerMessage } from '../../shared/types/realtime'
+import { REACTIONS, type ChatMessage, type ClientMessage, type Peer, type ServerMessage } from '../../shared/types/realtime'
 import { createIdentity } from '../utils/identity'
 
 const CHANNEL = 'room'
@@ -59,6 +59,22 @@ export default defineWebSocketHandler({
         if (x === null || y === null) return
         if (!(REACTIONS as readonly string[]).includes(msg.emoji)) return
         peer.publish(CHANNEL, JSON.stringify({ t: 'reaction', id: identity.id, emoji: msg.emoji, x, y } satisfies ServerMessage))
+        break
+      }
+      case 'message': {
+        const text = typeof msg.text === 'string' ? msg.text.trim() : ''
+        if (!text) return
+        const chatMessage: ChatMessage = {
+          id: crypto.randomUUID(),
+          peerId: identity.id,
+          name: identity.name,
+          color: identity.color,
+          text: text.slice(0, 500),
+          createdAt: Date.now(),
+        }
+        const outbound = { t: 'message', message: chatMessage } satisfies ServerMessage
+        peer.publish(CHANNEL, JSON.stringify(outbound))
+        send(peer, outbound)
         break
       }
       case 'ping':
