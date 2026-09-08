@@ -19,12 +19,17 @@ export interface StoredUser {
 }
 
 // ---------------------------------------------------------------------------
-// File helpers
+// File helpers — works on local dev; falls back to in-memory on Vercel
 // ---------------------------------------------------------------------------
 
 const DATA_PATH = resolve(process.cwd(), 'server/data/users.json')
+const IS_VERCEL = !!process.env.VERCEL
+
+// In-memory store — used on Vercel (serverless filesystem is read-only)
+let memStore: StoredUser[] = []
 
 function readUsers(): StoredUser[] {
+  if (IS_VERCEL) return memStore
   try {
     return JSON.parse(readFileSync(DATA_PATH, 'utf-8')) as StoredUser[]
   } catch {
@@ -33,7 +38,13 @@ function readUsers(): StoredUser[] {
 }
 
 function writeUsers(users: StoredUser[]): void {
-  writeFileSync(DATA_PATH, JSON.stringify(users, null, 2), 'utf-8')
+  if (IS_VERCEL) { memStore = users; return }
+  try {
+    writeFileSync(DATA_PATH, JSON.stringify(users, null, 2), 'utf-8')
+  } catch {
+    // Fallback: file write failed, keep in memory
+    memStore = users
+  }
 }
 
 // ---------------------------------------------------------------------------

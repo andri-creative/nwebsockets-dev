@@ -26,4 +26,4 @@ logs
 !.env.example
 
 # User data (contains hashed passwords — do not commit)
-server/data/users.json
+# server/data/users.json
