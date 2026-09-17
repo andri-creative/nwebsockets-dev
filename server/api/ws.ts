@@ -21,46 +21,38 @@ function send(peer: { send: (data: string) => void }, msg: ServerMessage) {
 
 export default defineWebSocketHandler({
   async open(peer) {
-    // ------------------------------------------------------------------
-    // Token validation
-    // Extract token & timestamp from URL query params.
-    // e.g. /api/ws?token=xxx&timestamp=1234567890
-    //
-    // · No token  → guest mode (random identity, same as before)
-    // · Token present but INVALID / EXPIRED → reject the connection
-    // ------------------------------------------------------------------
-    const url = peer.request?.url ?? ''
-    const params = new URLSearchParams(url.includes('?') ? url.slice(url.indexOf('?') + 1) : '')
-    const token = params.get('token')
-    const timestamp = params.get('timestamp')
+    try {
+      const url = peer.request?.url ?? ''
+      const params = new URLSearchParams(url.includes('?') ? url.slice(url.indexOf('?') + 1) : '')
+      const token = params.get('token')
+      const timestamp = params.get('timestamp')
 
-    let identity: Peer
+      let identity: Peer
 
-    if (token) {
-      // Token was supplied — it must be valid
-      const authUser = await validateToken(token, timestamp ? Number(timestamp) : undefined)
-      if (!authUser) {
-        // Invalid or expired token — refuse the connection
-        peer.close(4001, 'Unauthorized: invalid or expired token')
-        return
+      if (token) {
+        const authUser = await validateToken(token, timestamp ? Number(timestamp) : undefined)
+        if (!authUser) {
+          console.warn('[ws] token validation failed, token prefix:', token.slice(0, 8))
+          peer.close(4001, 'Unauthorized: invalid or expired token')
+          return
+        }
+        identity = { id: authUser.id, name: authUser.name, color: authUser.color }
+      } else {
+        identity = createIdentity()
       }
-      identity = { id: authUser.id, name: authUser.name, color: authUser.color }
-    } else {
-      // No token — guest mode
-      identity = createIdentity()
+
+      peer.context.identity = identity
+      peer.subscribe(CHANNEL)
+
+      const roster = [...peers.values()]
+      peers.set(identity.id, identity)
+
+      send(peer, { t: 'welcome', self: identity, peers: roster })
+      peer.publish(CHANNEL, JSON.stringify({ t: 'join', peer: identity } satisfies ServerMessage))
+    } catch (err) {
+      console.error('[ws] open handler error:', err)
+      peer.close(4002, 'Server error during handshake')
     }
-
-    peer.context.identity = identity
-
-    peer.subscribe(CHANNEL)
-
-    // Capture the roster of existing peers *before* adding self, so `welcome.peers`
-    // excludes the new peer (the client tracks self separately via `welcome.self`).
-    const roster = [...peers.values()]
-    peers.set(identity.id, identity)
-
-    send(peer, { t: 'welcome', self: identity, peers: roster })
-    peer.publish(CHANNEL, JSON.stringify({ t: 'join', peer: identity } satisfies ServerMessage))
   },
   message(peer, message) {
     const identity = peer.context.identity as Peer | undefined
@@ -115,13 +107,13 @@ export default defineWebSocketHandler({
     const identity = peer.context.identity as Peer | undefined
     if (!identity) return
     peers.delete(identity.id)
-    peer.publish(CHANNEL, JSON.stringify({ t: 'leave', id: identity.id } satisfies ServerMessage))
+    peer.publish(CHANNEL, JSON.stringify({ t: 'leave', id: identity.id } satisfies(ServerMessage)))
   },
   error(peer, error) {
     console.error('[realtime] ws error', peer.id, error)
     const identity = peer.context.identity as Peer | undefined
     if (!identity) return
     peers.delete(identity.id)
-    peer.publish(CHANNEL, JSON.stringify({ t: 'leave', id: identity.id } satisfies ServerMessage))
+    peer.publish(CHANNEL, JSON.stringify({ t: 'leave', id: identity.id } satisfies(ServerMessage)))
   },
 })

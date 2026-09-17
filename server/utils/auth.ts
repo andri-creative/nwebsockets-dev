@@ -189,10 +189,11 @@ export async function validateToken(
   // Reject if token is expired
   if (Date.now() > user.tokenExpiresAt) return null
 
-  // Optionally cross-check the timestamp the client sent (must match stored expiry)
+  // Cross-check the timestamp the client sent (must be within 60s of stored expiry)
+  // This prevents replay attacks while tolerating minor clock differences.
   if (timestamp !== undefined && timestamp !== null) {
     const ts = Number(timestamp)
-    if (Number.isNaN(ts) || ts !== user.tokenExpiresAt) return null
+    if (Number.isNaN(ts) || Math.abs(ts - user.tokenExpiresAt) > 60_000) return null
   }
 
   return user
