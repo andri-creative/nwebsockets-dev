@@ -27,7 +27,7 @@ export default defineEventHandler(async (event) => {
   // Logout — just needs the token
   // ------------------------------------------------------------------
   if (action === 'logout' || action === 'delete_token') {
-    if (typeof token === 'string') logoutUser(token)
+    if (typeof token === 'string') await logoutUser(token)
     return { ok: true }
   }
 
@@ -39,13 +39,13 @@ export default defineEventHandler(async (event) => {
       throw createError({ statusCode: 400, statusMessage: 'email dan password wajib diisi.' })
     }
 
-    const result = registerUser(email, password)
+    const result = await registerUser(email, password)
     if ('error' in result) {
       throw createError({ statusCode: 400, statusMessage: result.error })
     }
 
     // Auto-login after register
-    const loginResult = loginUser(email, password)
+    const loginResult = await loginUser(email, password)
     if ('error' in loginResult) {
       throw createError({ statusCode: 500, statusMessage: loginResult.error })
     }
@@ -67,7 +67,7 @@ export default defineEventHandler(async (event) => {
       throw createError({ statusCode: 400, statusMessage: 'email dan password wajib diisi.' })
     }
 
-    const result = loginUser(email, password)
+    const result = await loginUser(email, password)
     if ('error' in result) {
       throw createError({ statusCode: 401, statusMessage: result.error })
     }

@@ -20,7 +20,7 @@ function send(peer: { send: (data: string) => void }, msg: ServerMessage) {
 }
 
 export default defineWebSocketHandler({
-  open(peer) {
+  async open(peer) {
     // ------------------------------------------------------------------
     // Token validation
     // Extract token & timestamp from URL query params.
@@ -38,7 +38,7 @@ export default defineWebSocketHandler({
 
     if (token) {
       // Token was supplied — it must be valid
-      const authUser = validateToken(token, timestamp ? Number(timestamp) : undefined)
+      const authUser = await validateToken(token, timestamp ? Number(timestamp) : undefined)
       if (!authUser) {
         // Invalid or expired token — refuse the connection
         peer.close(4001, 'Unauthorized: invalid or expired token')

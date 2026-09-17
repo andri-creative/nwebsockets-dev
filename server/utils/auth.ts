@@ -1,6 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { readFileSync, writeFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { useTurso } from './turso'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -19,31 +18,41 @@ export interface StoredUser {
 }
 
 // ---------------------------------------------------------------------------
-// File helpers — works on local dev; falls back to in-memory on Vercel
+// Schema — run once to ensure the users table exists
 // ---------------------------------------------------------------------------
 
-const DATA_PATH = resolve(process.cwd(), 'server/data/users.json')
-const IS_VERCEL = !!process.env.VERCEL
+let schemaReady = false
 
-// In-memory store — used on Vercel (serverless filesystem is read-only)
-let memStore: StoredUser[] = []
-
-function readUsers(): StoredUser[] {
-  if (IS_VERCEL) return memStore
-  try {
-    return JSON.parse(readFileSync(DATA_PATH, 'utf-8')) as StoredUser[]
-  } catch {
-    return []
-  }
+export async function ensureSchema(): Promise<void> {
+  if (schemaReady) return
+  const db = useTurso()
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS users (
+      id              TEXT PRIMARY KEY,
+      email           TEXT NOT NULL UNIQUE,
+      name            TEXT NOT NULL,
+      color           TEXT NOT NULL,
+      password_hash   TEXT NOT NULL,
+      token           TEXT,
+      token_expires_at INTEGER
+    )
+  `)
+  schemaReady = true
 }
 
-function writeUsers(users: StoredUser[]): void {
-  if (IS_VERCEL) { memStore = users; return }
-  try {
-    writeFileSync(DATA_PATH, JSON.stringify(users, null, 2), 'utf-8')
-  } catch {
-    // Fallback: file write failed, keep in memory
-    memStore = users
+// ---------------------------------------------------------------------------
+// Row → StoredUser helper
+// ---------------------------------------------------------------------------
+
+function rowToUser(row: Record<string, unknown>): StoredUser {
+  return {
+    id: row.id as string,
+    email: row.email as string,
+    name: row.name as string,
+    color: row.color as string,
+    passwordHash: row.password_hash as string,
+    token: (row.token as string) ?? null,
+    tokenExpiresAt: (row.token_expires_at as number) ?? null,
   }
 }
 
@@ -76,11 +85,12 @@ const TOKEN_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
 // ---------------------------------------------------------------------------
 
 /** Register a new user. Returns the created user or an error string. */
-export function registerUser(
+export async function registerUser(
   email: string,
   password: string,
-): { user: StoredUser } | { error: string } {
-  const users = readUsers()
+): Promise<{ user: StoredUser } | { error: string }> {
+  await ensureSchema()
+  const db = useTurso()
   const normalized = email.toLowerCase().trim()
 
   if (!normalized || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
@@ -89,7 +99,12 @@ export function registerUser(
   if (!password || password.length < 6) {
     return { error: 'Password minimal 6 karakter.' }
   }
-  if (users.some(u => u.email === normalized)) {
+
+  const existing = await db.execute({
+    sql: 'SELECT id FROM users WHERE email = ?',
+    args: [normalized],
+  })
+  if (existing.rows.length > 0) {
     return { error: 'Email sudah terdaftar.' }
   }
 
@@ -107,44 +122,69 @@ export function registerUser(
     tokenExpiresAt: null,
   }
 
-  users.push(user)
-  writeUsers(users)
+  await db.execute({
+    sql: `INSERT INTO users (id, email, name, color, password_hash, token, token_expires_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    args: [user.id, user.email, user.name, user.color, user.passwordHash, null, null],
+  })
+
   return { user }
 }
 
 /** Login an existing user. Returns the user (with refreshed token) or an error string. */
-export function loginUser(
+export async function loginUser(
   email: string,
   password: string,
-): { user: StoredUser } | { error: string } {
-  const users = readUsers()
+): Promise<{ user: StoredUser } | { error: string }> {
+  await ensureSchema()
+  const db = useTurso()
   const normalized = email.toLowerCase().trim()
-  const idx = users.findIndex(u => u.email === normalized)
 
-  if (idx === -1) return { error: 'Email tidak ditemukan.' }
+  const { rows } = await db.execute({
+    sql: 'SELECT * FROM users WHERE email = ?',
+    args: [normalized],
+  })
 
-  const user = users[idx]!
+  if (rows.length === 0) return { error: 'Email tidak ditemukan.' }
+
+  const user = rowToUser(rows[0]!)
   if (user.passwordHash !== hashPassword(password)) {
     return { error: 'Password salah.' }
   }
 
   // Rotate token on each login
-  user.token = `sk-${randomUUID()}`
-  user.tokenExpiresAt = Date.now() + TOKEN_TTL_MS
-  writeUsers(users)
+  const newToken = `sk-${randomUUID()}`
+  const newExpiresAt = Date.now() + TOKEN_TTL_MS
+
+  await db.execute({
+    sql: 'UPDATE users SET token = ?, token_expires_at = ? WHERE id = ?',
+    args: [newToken, newExpiresAt, user.id],
+  })
+
+  user.token = newToken
+  user.tokenExpiresAt = newExpiresAt
   return { user }
 }
 
 /** Validate a token + timestamp pair. Returns the user or null. */
-export function validateToken(
+export async function validateToken(
   token: string | null | undefined,
   timestamp: string | number | null | undefined,
-): StoredUser | null {
+): Promise<StoredUser | null> {
   if (!token) return null
 
-  const users = readUsers()
-  const user = users.find(u => u.token === token)
-  if (!user || !user.tokenExpiresAt) return null
+  await ensureSchema()
+  const db = useTurso()
+
+  const { rows } = await db.execute({
+    sql: 'SELECT * FROM users WHERE token = ?',
+    args: [token],
+  })
+
+  if (rows.length === 0) return null
+
+  const user = rowToUser(rows[0]!)
+  if (!user.tokenExpiresAt) return null
 
   // Reject if token is expired
   if (Date.now() > user.tokenExpiresAt) return null
@@ -159,12 +199,12 @@ export function validateToken(
 }
 
 /** Invalidate (clear) a user's token — used on logout. */
-export function logoutUser(token: string): void {
-  const users = readUsers()
-  const user = users.find(u => u.token === token)
-  if (user) {
-    user.token = null
-    user.tokenExpiresAt = null
-    writeUsers(users)
-  }
+export async function logoutUser(token: string): Promise<void> {
+  await ensureSchema()
+  const db = useTurso()
+
+  await db.execute({
+    sql: 'UPDATE users SET token = NULL, token_expires_at = NULL WHERE token = ?',
+    args: [token],
+  })
 }
