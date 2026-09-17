@@ -112,26 +112,28 @@ export async function registerUser(
     .replace(/[._-]/g, ' ')
     .replace(/\b\w/g, c => c.toUpperCase())
 
+  const newToken = `sk-${randomUUID()}`
+
   const user: StoredUser = {
     id: randomUUID(),
     email: normalized,
     name,
     color: randomColor(),
     passwordHash: hashPassword(password),
-    token: null,
+    token: newToken,
     tokenExpiresAt: null,
   }
 
   await db.execute({
     sql: `INSERT INTO users (id, email, name, color, password_hash, token, token_expires_at)
           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    args: [user.id, user.email, user.name, user.color, user.passwordHash, null, null],
+    args: [user.id, user.email, user.name, user.color, user.passwordHash, newToken, null],
   })
 
   return { user }
 }
 
-/** Login an existing user. Returns the user (with refreshed token) or an error string. */
+/** Login an existing user. Returns the user with existing token. */
 export async function loginUser(
   email: string,
   password: string,
@@ -152,24 +154,21 @@ export async function loginUser(
     return { error: 'Password salah.' }
   }
 
-  // Rotate token on each login
-  const newToken = `sk-${randomUUID()}`
-  const newExpiresAt = Date.now() + TOKEN_TTL_MS
-
-  await db.execute({
-    sql: 'UPDATE users SET token = ?, token_expires_at = ? WHERE id = ?',
-    args: [newToken, newExpiresAt, user.id],
-  })
-
-  user.token = newToken
-  user.tokenExpiresAt = newExpiresAt
+  // Use existing token, only generate if missing (migration for old users)
+  if (!user.token) {
+    const newToken = `sk-${randomUUID()}`
+    await db.execute({
+      sql: 'UPDATE users SET token = ? WHERE id = ?',
+      args: [newToken, user.id],
+    })
+    user.token = newToken
+  }
   return { user }
 }
 
-/** Validate a token + timestamp pair. Returns the user or null. */
+/** Validate a token. Returns the user or null. */
 export async function validateToken(
   token: string | null | undefined,
-  timestamp: string | number | null | undefined,
 ): Promise<StoredUser | null> {
   if (!token) return null
 
@@ -183,29 +182,10 @@ export async function validateToken(
 
   if (rows.length === 0) return null
 
-  const user = rowToUser(rows[0]!)
-  if (!user.tokenExpiresAt) return null
-
-  // Reject if token is expired
-  if (Date.now() > user.tokenExpiresAt) return null
-
-  // Cross-check the timestamp the client sent (must be within 60s of stored expiry)
-  // This prevents replay attacks while tolerating minor clock differences.
-  if (timestamp !== undefined && timestamp !== null) {
-    const ts = Number(timestamp)
-    if (Number.isNaN(ts) || Math.abs(ts - user.tokenExpiresAt) > 60_000) return null
-  }
-
-  return user
+  return rowToUser(rows[0]!)
 }
 
-/** Invalidate (clear) a user's token — used on logout. */
-export async function logoutUser(token: string): Promise<void> {
-  await ensureSchema()
-  const db = useTurso()
-
-  await db.execute({
-    sql: 'UPDATE users SET token = NULL, token_expires_at = NULL WHERE token = ?',
-    args: [token],
-  })
+/** Logout is a no-op — token persists. Use deleteToken to revoke. */
+export async function logoutUser(_token: string): Promise<void> {
+  // Intentionally empty — token stays valid
 }

@@ -25,12 +25,12 @@ export default defineWebSocketHandler({
       const url = peer.request?.url ?? ''
       const params = new URLSearchParams(url.includes('?') ? url.slice(url.indexOf('?') + 1) : '')
       const token = params.get('token')
-      const timestamp = params.get('timestamp')
 
       let identity: Peer
 
       if (token) {
-        const authUser = await validateToken(token, timestamp ? Number(timestamp) : undefined)
+        // Token was supplied — it must be valid
+        const authUser = await validateToken(token)
         if (!authUser) {
           console.warn('[ws] token validation failed, token prefix:', token.slice(0, 8))
           peer.close(4001, 'Unauthorized: invalid or expired token')

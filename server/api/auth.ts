@@ -26,7 +26,11 @@ export default defineEventHandler(async (event) => {
   // ------------------------------------------------------------------
   // Logout — just needs the token
   // ------------------------------------------------------------------
-  if (action === 'logout' || action === 'delete_token') {
+  if (action === 'logout') {
+    return { ok: true }
+  }
+
+  if (action === 'delete_token' || action === 'revoke_token') {
     if (typeof token === 'string') await logoutUser(token)
     return { ok: true }
   }
